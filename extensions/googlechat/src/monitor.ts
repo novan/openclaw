@@ -170,21 +170,50 @@ export async function handleGoogleChatWebhookRequest(
     authorizationEventObject?: { systemIdToken?: string };
   };
 
-  if (rawObj.commonEventObject?.hostApp === "CHAT" && rawObj.chat?.messagePayload) {
-    const chat = rawObj.chat;
-    const messagePayload = chat.messagePayload;
-    raw = {
-      type: "MESSAGE",
-      space: messagePayload?.space,
-      message: messagePayload?.message,
-      user: chat.user,
-      eventTime: chat.eventTime,
-    };
+  if (rawObj.commonEventObject?.hostApp === "CHAT") {
+    const chat = rawObj.chat as (typeof rawObj.chat & {
+      addedToSpacePayload?: { space?: GoogleChatSpace };
+      removedFromSpacePayload?: { space?: GoogleChatSpace };
+    }) | undefined;
 
     // For Add-ons, the bearer token may be in authorizationEventObject.systemIdToken
     const systemIdToken = rawObj.authorizationEventObject?.systemIdToken;
     if (!bearer && systemIdToken) {
       Object.assign(req.headers, { authorization: `Bearer ${systemIdToken}` });
+    }
+
+    if (chat?.messagePayload) {
+      // MESSAGE event
+      const messagePayload = chat.messagePayload;
+      raw = {
+        type: "MESSAGE",
+        space: messagePayload?.space,
+        message: messagePayload?.message,
+        user: chat.user,
+        eventTime: chat.eventTime,
+      };
+    } else if (chat?.addedToSpacePayload) {
+      // ADDED_TO_SPACE event
+      raw = {
+        type: "ADDED_TO_SPACE",
+        space: chat.addedToSpacePayload.space,
+        user: chat.user,
+        eventTime: chat.eventTime,
+      };
+    } else if (chat?.removedFromSpacePayload) {
+      // REMOVED_FROM_SPACE event
+      raw = {
+        type: "REMOVED_FROM_SPACE",
+        space: chat.removedFromSpacePayload.space,
+        user: chat.user,
+        eventTime: chat.eventTime,
+      };
+    } else {
+      // Unknown Add-on event type — respond 200 to avoid error logs
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end("{}");
+      return true;
     }
   }
 
